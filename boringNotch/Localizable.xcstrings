@@ -60,6 +60,12 @@
             "state" : "translated",
             "value" : " (varsayılan)"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : " (默认)"
+          }
         }
       }
     },
@@ -262,6 +268,12 @@
             "state" : "translated",
             "value" : "%@ yalnızca OSD değiştirmek için macOS'in yerleşik denetim kaynakları kullanılırken gereklidir. BetterDisplay veya Lunar gibi harici kaynaklar bunu gerektirmez. Gerekirse daha sonra ekran göstergesi ayarlarından etkinleştirebilirsiniz."
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在使用 macOS 内置控制源替代 OSD 时才需要启用 %@。如果使用 BetterDisplay 或 Lunar 等外部控制源则无需启用。之后如有需要，也可以在 OSD 设置中再开启。"
+          }
         }
       }
     },
@@ -301,6 +313,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ используется только для улучшения уведомлений о медиа и яркости. Данные не собираются и не передаются."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 仅用于优化媒体和亮度通知，不会收集或共享任何数据。"
           }
         }
       }
@@ -342,6 +360,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ bildirim"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 通知"
           }
         }
       }
@@ -395,6 +419,12 @@
             "state" : "translated",
             "value" : "%@ gerekli"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 为必需项"
+          }
         }
       }
     },
@@ -438,6 +468,12 @@
           }
         },
         "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@x"
+          }
+        },
+        "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@x"
@@ -984,6 +1020,12 @@
             "state" : "translated",
             "value" : "Erişilebilirlik"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "辅助功能"
+          }
         }
       }
     },
@@ -1035,6 +1077,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gerçek Boyut"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "实际尺寸"
           }
         }
       }
@@ -1201,6 +1249,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Uygulama Ekle..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加应用程序…"
           }
         }
       }
@@ -1373,6 +1427,12 @@
             "state" : "translated",
             "value" : "Favorilere ekle"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加至收藏"
+          }
         }
       }
     },
@@ -1418,6 +1478,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tüm uygulamalar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "所有应用程序"
           }
         }
       }
@@ -1684,6 +1750,12 @@
             "state" : "translated",
             "value" : "Всегда следить за активными дисплеями"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "始终跟随当前显示器"
+          }
         }
       }
     },
@@ -1729,6 +1801,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Her Zaman Şununla Aç"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "始终使用以下应用打开"
           }
         }
       }
@@ -2088,6 +2166,12 @@
             "state" : "translated",
             "value" : "Uygulama"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用程序"
+          }
         }
       }
     },
@@ -2264,6 +2348,12 @@
             "state" : "translated",
             "value" : "Uygulamalar"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "应用程序"
+          }
         }
       }
     },
@@ -2285,6 +2375,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Аудио обрабатывается локально для визуализатора и никогда не записывается, не хранится и не публикуется."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音频数据仅在本地用于呈现可视化效果，不会被录制、存储或共享"
           }
         }
       }
@@ -2331,6 +2427,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ses çıkışı"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音频输出"
           }
         }
       }
@@ -2792,6 +2894,12 @@
             "state" : "translated",
             "value" : "Автоматически переключать дисплей, если предпочитаемый не доступен"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "首选显示器不可用时自动切换显示器"
+          }
         }
       }
     },
@@ -2957,6 +3065,12 @@
             "state" : "translated",
             "value" : "Arka Plan Kaldırılamadı"
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "背景移除失败"
+          }
         }
       }
     },
@@ -3090,6 +3204,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "15 saniye geri sar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "后退 15 秒"
           }
         }
       }
@@ -3614,6 +3734,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Davranış"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行为"
           }
         }
       }
