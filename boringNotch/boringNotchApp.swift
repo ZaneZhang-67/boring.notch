@@ -372,17 +372,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor [weak self] in
                 guard let self else { return }
 
-                let mouseLocation = NSEvent.mouseLocation
-                var viewModel = self.vm
+                // Clipboard history always belongs to the MacBook notch. Never open it
+                // on the display under the pointer when that display is external.
+                guard let builtInScreen = NSScreen.screens.first(where: \.isBuiltInDisplay) else {
+                    return
+                }
 
-                if Defaults[.showOnAllDisplays] {
-                    for screen in NSScreen.screens where screen.frame.contains(mouseLocation) {
-                        if let uuid = screen.displayUUID,
-                           let screenViewModel = self.viewModels[uuid] {
-                            viewModel = screenViewModel
-                            break
-                        }
-                    }
+                let viewModel: BoringViewModel
+                if Defaults[.showOnAllDisplays],
+                   let uuid = builtInScreen.displayUUID,
+                   let builtInViewModel = self.viewModels[uuid] {
+                    viewModel = builtInViewModel
+                } else {
+                    // In single-display mode boringNotch may currently be assigned to an
+                    // external monitor. Avoid triggering that window.
+                    guard self.window?.screen?.isBuiltInDisplay == true else { return }
+                    viewModel = self.vm
                 }
 
                 self.closeNotchTask?.cancel()
