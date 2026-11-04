@@ -1739,6 +1739,13 @@ struct Shortcuts: View {
             }
             Section {
                 KeyboardShortcuts.Recorder("Toggle Notch Open:", name: .toggleNotchOpen)
+                KeyboardShortcuts.Recorder("Open Clipboard History:", name: .clipboardHistoryPanel)
+            } header: {
+                Text("Notch")
+            } footer: {
+                Text("Clipboard history is stored locally on this Mac. The default shortcut is Control + ;")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
             }
         }
         .accentColor(.effectiveAccent)
