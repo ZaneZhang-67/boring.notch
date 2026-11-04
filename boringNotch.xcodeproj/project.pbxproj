@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D3C100042F00000100000001 /* ClipboardHotKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100142F00000100000001 /* ClipboardHotKey.swift */; };
 		D3C100012F00000100000001 /* ClipboardItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100112F00000100000001 /* ClipboardItem.swift */; };
 		D3C100022F00000100000001 /* ClipboardHistoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100122F00000100000001 /* ClipboardHistoryViewModel.swift */; };
 		D3C100032F00000100000001 /* ClipboardHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100132F00000100000001 /* ClipboardHistoryView.swift */; };
@@ -184,6 +185,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		D3C100142F00000100000001 /* ClipboardHotKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHotKey.swift; sourceTree = "<group>"; };
 		D3C100112F00000100000001 /* ClipboardItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardItem.swift; sourceTree = "<group>"; };
 		D3C100122F00000100000001 /* ClipboardHistoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryViewModel.swift; sourceTree = "<group>"; };
 		D3C100132F00000100000001 /* ClipboardHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryView.swift; sourceTree = "<group>"; };
@@ -762,6 +764,7 @@
 			isa = PBXGroup;
 			children = (
 				B186543B2C6F49AE000B926A /* ShortcutConstants.swift */,
+				D3C100142F00000100000001 /* ClipboardHotKey.swift */,
 			);
 			path = Shortcuts;
 			sourceTree = "<group>";
@@ -929,6 +932,7 @@
 				147163982C5D35B70068B555 /* MusicVisualizer.swift in Sources */,
 				11CC44A22CEE614100C7244B /* BoringViewCoordinator.swift in Sources */,
 				B186543C2C6F49AE000B926A /* ShortcutConstants.swift in Sources */,
+				D3C100042F00000100000001 /* ClipboardHotKey.swift in Sources */,
 				11A45C792E34E63100CEB175 /* MediaChecker.swift in Sources */,
 				B1D365CE2C6A979C0047BDBC /* LiveActivityModifier.swift in Sources */,
 				1113ABD02E80E6BB00EC13B2 /* ThumbnailService.swift in Sources */,

@@ -86,6 +86,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         MusicManager.shared.destroy()
         ClipboardHistoryViewModel.shared.stopMonitoring()
+        ClipboardHotKey.shared.unregister()
         cleanupDragDetectors()
         cleanupWindows()
         if let clipboardWindow {
@@ -388,8 +389,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         ClipboardHistoryViewModel.shared.startMonitoring()
 
-        KeyboardShortcuts.onKeyDown(for: .clipboardHistoryPanel) { [weak self] in
-            Task { @MainActor [weak self] in
+        do {
+            try ClipboardHotKey.shared.register { [weak self] in
                 guard let self else { return }
 
                 // Clipboard history always belongs to the MacBook notch. Never open it
@@ -446,6 +447,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     viewModel: viewModel
                 )
             }
+        } catch {
+            assertionFailure(error.localizedDescription)
+            NSLog("[ClipboardHotKey] registration failed: %@", error.localizedDescription)
         }
 
         KeyboardShortcuts.onKeyDown(for: .toggleNotchOpen) { [weak self] in
