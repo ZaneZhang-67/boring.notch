@@ -1743,7 +1743,7 @@ struct Shortcuts: View {
             } header: {
                 Text("Notch")
             } footer: {
-                Text("Clipboard history is stored locally on this Mac. The default shortcut is Control + ;")
+                Text("Clipboard history is stored locally on this Mac. The default shortcut is Command + ;")
                     .foregroundStyle(.secondary)
                     .font(.caption)
             }
