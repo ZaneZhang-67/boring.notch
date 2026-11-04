@@ -272,6 +272,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
+    private func logClipboardDiagnostics(_ phase: String, targetScreen: NSScreen? = nil, targetWindow: NSWindow? = nil, viewModel: BoringViewModel? = nil) {
+        let screenLines = NSScreen.screens.map { screen in
+            let uuid = screen.displayUUID ?? "nil"
+            return "screen=\(screen.localizedName) uuid=\(uuid) builtIn=\(screen.isBuiltInDisplay) frame=\(screen.frame)"
+        }.joined(separator: " | ")
+        let windowScreen = targetWindow?.screen
+        let windowScreenName = windowScreen?.localizedName ?? "nil"
+        let targetScreenName = targetScreen?.localizedName ?? "nil"
+        let windowLine = "windowFrame=\(String(describing: targetWindow?.frame)) windowVisible=\(targetWindow?.isVisible ?? false) windowScreen=\(windowScreenName) windowBuiltIn=\(windowScreen?.isBuiltInDisplay ?? false)"
+        let targetLine = "targetScreen=\(targetScreenName) targetBuiltIn=\(targetScreen?.isBuiltInDisplay ?? false) notchState=\(String(describing: viewModel?.notchState))"
+        NSLog("[ClipboardDiagnostics] \(phase) | \(screenLines) | \(targetLine) | \(windowLine)")
+    }
+
+    @MainActor
     private func positionWindow(_ window: NSWindow, on screen: NSScreen, changeAlpha: Bool = false) {
         if changeAlpha {
             window.alphaValue = 0
@@ -384,13 +398,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
 
+                self.logClipboardDiagnostics("shortcut-start", targetScreen: builtInScreen)
+
                 let viewModel: BoringViewModel
+                let targetWindow: NSWindow
                 if Defaults[.showOnAllDisplays],
                    let uuid = builtInScreen.displayUUID,
-                   let builtInViewModel = self.viewModels[uuid] {
+                   let builtInViewModel = self.viewModels[uuid],
+                   let builtInWindow = self.windows[uuid] {
                     viewModel = builtInViewModel
-                } else if self.window?.screen?.isBuiltInDisplay == true {
+                    targetWindow = builtInWindow
+                } else if let mainWindow = self.window,
+                          mainWindow.screen?.isBuiltInDisplay == true {
                     viewModel = self.vm
+                    targetWindow = mainWindow
                 } else {
                     // The normal single-display window is assigned to an external monitor.
                     // Keep that preference intact and maintain a dedicated built-in window
@@ -410,12 +431,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                           let clipboardViewModel = self.clipboardViewModel else { return }
                     self.positionWindow(clipboardWindow, on: builtInScreen)
                     viewModel = clipboardViewModel
+                    targetWindow = clipboardWindow
                 }
 
                 self.closeNotchTask?.cancel()
                 self.closeNotchTask = nil
                 self.coordinator.currentView = .clipboard
                 viewModel.open()
+                targetWindow.orderFrontRegardless()
+                self.logClipboardDiagnostics(
+                    "shortcut-opened",
+                    targetScreen: builtInScreen,
+                    targetWindow: targetWindow,
+                    viewModel: viewModel
+                )
             }
         }
 
