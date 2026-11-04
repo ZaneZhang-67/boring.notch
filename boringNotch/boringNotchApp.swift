@@ -60,6 +60,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var whatsNewWindow: NSWindow?
     private var clipboardWindow: NSWindow?
     private var clipboardViewModel: BoringViewModel?
+    private weak var activeClipboardWindow: NSWindow?
+    private weak var activeClipboardViewModel: BoringViewModel?
+    private weak var clipboardPrimaryWindowHiddenForLock: NSWindow?
+    private var clipboardPreviouslyActiveApplication: NSRunningApplication?
+    private var clipboardShortcutAction: (() -> Void)?
+    private var clipboardWindowResignObserver: Any?
+    private var clipboardGlobalMouseMonitor: Any?
+    private var clipboardLocalMouseMonitor: Any?
+    private var clipboardFocusWorkItem: DispatchWorkItem?
     var timer: Timer?
     var closeNotchTask: Task<Void, Never>?
     private var previousScreens: [NSScreen]?
@@ -85,6 +94,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             screenUnlockedObserver = nil
         }
         MusicManager.shared.destroy()
+        clipboardFocusWorkItem?.cancel()
+        removeClipboardOutsideClickMonitors()
+        if let clipboardWindowResignObserver {
+            NotificationCenter.default.removeObserver(clipboardWindowResignObserver)
+            self.clipboardWindowResignObserver = nil
+        }
         ClipboardHistoryViewModel.shared.stopMonitoring()
         ClipboardHotKey.shared.unregister()
         cleanupDragDetectors()
@@ -99,6 +114,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func onScreenLocked(_ notification: Notification) {
         isScreenLocked = true
+        if let activeClipboardWindow, activeClipboardWindow !== clipboardWindow {
+            clipboardPrimaryWindowHiddenForLock = activeClipboardWindow
+        }
+        closeClipboardPanel(restorePreviousApplication: false, hideWindow: true)
+        clipboardWindow?.orderOut(nil)
+        if Defaults[.clipboardPauseOnLockScreen] {
+            ClipboardHistoryViewModel.shared.stopMonitoring()
+        }
         if !Defaults[.showOnLockScreen] {
             cleanupWindows()
         } else {
@@ -109,6 +132,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func onScreenUnlocked(_ notification: Notification) {
         isScreenLocked = false
+        if let clipboardPrimaryWindowHiddenForLock {
+            clipboardPrimaryWindowHiddenForLock.orderFrontRegardless()
+            self.clipboardPrimaryWindowHiddenForLock = nil
+        }
+        ClipboardHistoryViewModel.shared.applyPreferences()
         if !Defaults[.showOnLockScreen] {
             adjustWindowPosition(changeAlpha: true)
         } else {
@@ -231,11 +259,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let uuid = screen.displayUUID else { return }
         
         if Defaults[.showOnAllDisplays], let viewModel = viewModels[uuid] {
+            viewModel.currentView = .shelf
             viewModel.open()
-            coordinator.currentView = .shelf
         } else if !Defaults[.showOnAllDisplays], let windowScreen = window?.screen, screen == windowScreen {
+            vm.currentView = .shelf
             vm.open()
-            coordinator.currentView = .shelf
         }
     }
 
@@ -273,6 +301,121 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
+    private func openClipboardPanel(requestedViewModel: BoringViewModel? = nil) {
+        guard let builtInScreen = NSScreen.screens.first(where: \.isBuiltInDisplay) else { return }
+        logClipboardDiagnostics("open-start", targetScreen: builtInScreen)
+
+        let viewModel: BoringViewModel
+        let targetWindow: NSWindow
+        if let requestedViewModel {
+            guard requestedViewModel.screenUUID == builtInScreen.displayUUID else { return }
+            if requestedViewModel === clipboardViewModel,
+               let clipboardWindow {
+                viewModel = requestedViewModel
+                targetWindow = clipboardWindow
+            } else if requestedViewModel === vm,
+                      let window {
+                viewModel = requestedViewModel
+                targetWindow = window
+            } else if let entry = viewModels.first(where: { $0.value === requestedViewModel }),
+                      let window = windows[entry.key] {
+                viewModel = requestedViewModel
+                targetWindow = window
+            } else {
+                return
+            }
+        } else if Defaults[.showOnAllDisplays],
+                  let uuid = builtInScreen.displayUUID,
+                  let builtInViewModel = viewModels[uuid],
+                  let builtInWindow = windows[uuid] {
+            viewModel = builtInViewModel
+            targetWindow = builtInWindow
+        } else if let mainWindow = window,
+                  mainWindow.screen?.isBuiltInDisplay == true {
+            viewModel = vm
+            targetWindow = mainWindow
+        } else {
+            if clipboardWindow == nil || clipboardViewModel == nil {
+                guard let uuid = builtInScreen.displayUUID else { return }
+                let dedicatedViewModel = BoringViewModel(screenUUID: uuid)
+                let dedicatedWindow = createBoringNotchWindow(
+                    for: builtInScreen,
+                    with: dedicatedViewModel
+                )
+                clipboardWindow = dedicatedWindow
+                clipboardViewModel = dedicatedViewModel
+            }
+            guard let clipboardWindow, let clipboardViewModel else { return }
+            positionWindow(clipboardWindow, on: builtInScreen)
+            viewModel = clipboardViewModel
+            targetWindow = clipboardWindow
+        }
+
+        closeNotchTask?.cancel()
+        closeNotchTask = nil
+        viewModel.currentView = .clipboard
+        viewModel.open(size: clipboardOpenNotchSize)
+
+        let ownBundleIdentifier = Bundle.main.bundleIdentifier
+        let frontmostApplication = NSWorkspace.shared.frontmostApplication
+        if frontmostApplication?.bundleIdentifier != ownBundleIdentifier {
+            clipboardPreviouslyActiveApplication = frontmostApplication
+        }
+        activeClipboardWindow = targetWindow
+        activeClipboardViewModel = viewModel
+        if let observer = clipboardWindowResignObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        clipboardWindowResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: targetWindow,
+            queue: .main
+        ) { [weak self, weak targetWindow] _ in
+            Task { @MainActor in
+                guard let self,
+                      let targetWindow,
+                      self.activeClipboardWindow === targetWindow else { return }
+                self.closeClipboardPanel(restorePreviousApplication: true)
+            }
+        }
+        installClipboardOutsideClickMonitors(for: targetWindow)
+        if let keyboardWindow = targetWindow as? BoringNotchSkyLightWindow {
+            keyboardWindow.acceptsKeyboardInput = true
+        }
+        viewModel.clipboardOwnsKeyboardFocus = true
+        NSApp.activate(ignoringOtherApps: true)
+        targetWindow.makeKeyAndOrderFront(nil)
+        targetWindow.orderFrontRegardless()
+
+        clipboardFocusWorkItem?.cancel()
+        let focusWorkItem = DispatchWorkItem { [weak self, weak targetWindow, weak viewModel] in
+            guard let self,
+                  let targetWindow,
+                  let viewModel,
+                  self.activeClipboardWindow === targetWindow else { return }
+            targetWindow.makeKeyAndOrderFront(nil)
+            NotificationCenter.default.post(name: .clipboardPanelDidOpen, object: viewModel)
+            DispatchQueue.main.async {
+                guard self.activeClipboardWindow === targetWindow else { return }
+                self.logClipboardDiagnostics(
+                    "keyboard-focused",
+                    targetScreen: builtInScreen,
+                    targetWindow: targetWindow,
+                    viewModel: viewModel
+                )
+            }
+        }
+        clipboardFocusWorkItem = focusWorkItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: focusWorkItem)
+        logClipboardDiagnostics(
+            "open-complete",
+            targetScreen: builtInScreen,
+            targetWindow: targetWindow,
+            viewModel: viewModel
+        )
+    }
+
+    @MainActor
     private func logClipboardDiagnostics(_ phase: String, targetScreen: NSScreen? = nil, targetWindow: NSWindow? = nil, viewModel: BoringViewModel? = nil) {
         let screenLines = NSScreen.screens.map { screen in
             let uuid = screen.displayUUID ?? "nil"
@@ -281,7 +424,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let windowScreen = targetWindow?.screen
         let windowScreenName = windowScreen?.localizedName ?? "nil"
         let targetScreenName = targetScreen?.localizedName ?? "nil"
-        let windowLine = "windowFrame=\(String(describing: targetWindow?.frame)) windowVisible=\(targetWindow?.isVisible ?? false) windowScreen=\(windowScreenName) windowBuiltIn=\(windowScreen?.isBuiltInDisplay ?? false)"
+        let responderName = targetWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let windowLine = "windowFrame=\(String(describing: targetWindow?.frame)) windowVisible=\(targetWindow?.isVisible ?? false) windowKey=\(targetWindow?.isKeyWindow ?? false) firstResponder=\(responderName) windowScreen=\(windowScreenName) windowBuiltIn=\(windowScreen?.isBuiltInDisplay ?? false)"
         let targetLine = "targetScreen=\(targetScreenName) targetBuiltIn=\(targetScreen?.isBuiltInDisplay ?? false) notchState=\(String(describing: viewModel?.notchState))"
         NSLog("[ClipboardDiagnostics] \(phase) | \(screenLines) | \(targetLine) | \(windowLine)")
     }
@@ -302,6 +446,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clipboardPanelOpenRequested),
+            name: .clipboardPanelOpenRequested,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clipboardPanelSwitchRequested),
+            name: .clipboardPanelSwitchRequested,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clipboardPanelDidFinish),
+            name: .clipboardSelectionCompleted,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clipboardPanelDidRequestClose),
+            name: .clipboardPanelShouldClose,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(notchContentHeightDidChange),
+            name: .notchContentHeightChanged,
+            object: nil
+        )
 
         NotificationCenter.default.addObserver(
             self,
@@ -389,66 +565,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         ClipboardHistoryViewModel.shared.startMonitoring()
 
+        clipboardShortcutAction = { [weak self] in
+            self?.openClipboardPanel()
+        }
         do {
-            try ClipboardHotKey.shared.register { [weak self] in
-                guard let self else { return }
-
-                // Clipboard history always belongs to the MacBook notch. Never open it
-                // on the display under the pointer when that display is external.
-                guard let builtInScreen = NSScreen.screens.first(where: \.isBuiltInDisplay) else {
-                    return
-                }
-
-                self.logClipboardDiagnostics("shortcut-start", targetScreen: builtInScreen)
-
-                let viewModel: BoringViewModel
-                let targetWindow: NSWindow
-                if Defaults[.showOnAllDisplays],
-                   let uuid = builtInScreen.displayUUID,
-                   let builtInViewModel = self.viewModels[uuid],
-                   let builtInWindow = self.windows[uuid] {
-                    viewModel = builtInViewModel
-                    targetWindow = builtInWindow
-                } else if let mainWindow = self.window,
-                          mainWindow.screen?.isBuiltInDisplay == true {
-                    viewModel = self.vm
-                    targetWindow = mainWindow
-                } else {
-                    // The normal single-display window is assigned to an external monitor.
-                    // Keep that preference intact and maintain a dedicated built-in window
-                    // for clipboard history instead of moving or opening the external one.
-                    if self.clipboardWindow == nil || self.clipboardViewModel == nil {
-                        guard let uuid = builtInScreen.displayUUID else { return }
-                        let clipboardViewModel = BoringViewModel(screenUUID: uuid)
-                        let clipboardWindow = self.createBoringNotchWindow(
-                            for: builtInScreen,
-                            with: clipboardViewModel
-                        )
-                        self.clipboardWindow = clipboardWindow
-                        self.clipboardViewModel = clipboardViewModel
-                    }
-
-                    guard let clipboardWindow = self.clipboardWindow,
-                          let clipboardViewModel = self.clipboardViewModel else { return }
-                    self.positionWindow(clipboardWindow, on: builtInScreen)
-                    viewModel = clipboardViewModel
-                    targetWindow = clipboardWindow
-                }
-
-                self.closeNotchTask?.cancel()
-                self.closeNotchTask = nil
-                self.coordinator.currentView = .clipboard
-                viewModel.open()
-                targetWindow.orderFrontRegardless()
-                self.logClipboardDiagnostics(
-                    "shortcut-opened",
-                    targetScreen: builtInScreen,
-                    targetWindow: targetWindow,
-                    viewModel: viewModel
-                )
+            if let clipboardShortcutAction {
+                try ClipboardHotKey.shared.register(action: clipboardShortcutAction)
             }
         } catch {
-            assertionFailure(error.localizedDescription)
+            ClipboardHistoryViewModel.shared.errorMessage = error.localizedDescription
             NSLog("[ClipboardHotKey] registration failed: %@", error.localizedDescription)
         }
 
@@ -554,9 +679,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if screensChanged {
             DispatchQueue.main.async { [weak self] in
-                self?.cleanupWindows()
-                self?.adjustWindowPosition()
-                self?.setupDragDetectors()
+                guard let self else { return }
+                // Display topology changes must tear down Clipboard before macOS can
+                // migrate its high-level window onto a remaining external display.
+                self.closeClipboardPanel(restorePreviousApplication: false, hideWindow: true)
+                if let clipboardWindow = self.clipboardWindow {
+                    clipboardWindow.orderOut(nil)
+                    clipboardWindow.close()
+                    NotchSpaceManager.shared.notchSpace.windows.remove(clipboardWindow)
+                    self.clipboardWindow = nil
+                    self.clipboardViewModel = nil
+                }
+                self.cleanupWindows()
+                self.adjustWindowPosition()
+                self.setupDragDetectors()
             }
         }
     }
@@ -613,7 +749,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             vm.screenUUID = selectedScreen.displayUUID
-            vm.notchSize = getClosedNotchSize(screenUUID: selectedScreen.displayUUID)
 
             if window == nil {
                 window = createBoringNotchWindow(for: selectedScreen, with: vm)
@@ -624,8 +759,155 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 if vm.notchState == .closed {
                     vm.close()
+                } else {
+                    vm.open(size: vm.currentView == .clipboard ? clipboardOpenNotchSize : openNotchSize)
                 }
             }
+        }
+    }
+
+    @MainActor
+    @objc private func notchContentHeightDidChange(_ notification: Notification) {
+        guard let viewModel = notification.object as? BoringViewModel,
+              let height = notification.userInfo?["height"] as? CGFloat else { return }
+
+        let targetWindow: NSWindow?
+        if viewModel === clipboardViewModel {
+            targetWindow = clipboardWindow
+        } else if viewModel === vm {
+            targetWindow = window
+        } else {
+            targetWindow = viewModels.first(where: { $0.value === viewModel })
+                .flatMap { windows[$0.key] }
+        }
+
+        guard let targetWindow,
+              let screen = viewModel.screenUUID.flatMap({ NSScreen.screen(withUUID: $0) }) ?? targetWindow.screen,
+              height > 0,
+              height <= screen.frame.height else { return }
+
+        let frame = NSRect(
+            x: screen.frame.midX - windowSize.width / 2,
+            y: screen.frame.maxY - height,
+            width: windowSize.width,
+            height: height
+        )
+        guard !targetWindow.frame.equalTo(frame) else { return }
+        targetWindow.setFrame(frame, display: true, animate: viewModel.notchState == .open)
+        NSLog(
+            "[NotchLayout] content-height=%.0f windowFrame=%@ screen=%@ clipboard=%@",
+            height,
+            NSStringFromRect(frame),
+            screen.localizedName,
+            viewModel.currentView == .clipboard ? "true" : "false"
+        )
+    }
+
+    @MainActor
+    private func installClipboardOutsideClickMonitors(for window: NSWindow) {
+        removeClipboardOutsideClickMonitors()
+
+        let closeIfOutside: () -> Void = { [weak self, weak window] in
+            let point = NSEvent.mouseLocation
+            Task { @MainActor in
+                guard let self,
+                      let window,
+                      self.activeClipboardWindow === window,
+                      !window.frame.contains(point) else { return }
+                self.closeClipboardPanel(restorePreviousApplication: true)
+            }
+        }
+
+        clipboardGlobalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { _ in
+            closeIfOutside()
+        }
+        clipboardLocalMouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { event in
+            closeIfOutside()
+            return event
+        }
+    }
+
+    @MainActor
+    private func removeClipboardOutsideClickMonitors() {
+        if let clipboardGlobalMouseMonitor {
+            NSEvent.removeMonitor(clipboardGlobalMouseMonitor)
+            self.clipboardGlobalMouseMonitor = nil
+        }
+        if let clipboardLocalMouseMonitor {
+            NSEvent.removeMonitor(clipboardLocalMouseMonitor)
+            self.clipboardLocalMouseMonitor = nil
+        }
+    }
+
+    @MainActor
+    @objc private func clipboardPanelOpenRequested(_ notification: Notification) {
+        guard let viewModel = notification.object as? BoringViewModel else { return }
+        openClipboardPanel(requestedViewModel: viewModel)
+    }
+
+    @MainActor
+    @objc private func clipboardPanelSwitchRequested(_ notification: Notification) {
+        guard let viewModel = notification.object as? BoringViewModel,
+              let targetView = notification.userInfo?["targetView"] as? NotchViews,
+              activeClipboardViewModel === viewModel else { return }
+        let targetWindow = activeClipboardWindow
+        let usesDedicatedClipboardWindow = targetWindow === clipboardWindow
+        closeClipboardPanel(
+            restorePreviousApplication: usesDedicatedClipboardWindow,
+            hideWindow: usesDedicatedClipboardWindow
+        )
+        guard !usesDedicatedClipboardWindow else { return }
+        viewModel.currentView = targetView
+        viewModel.open()
+        targetWindow?.orderFrontRegardless()
+    }
+
+    @objc private func clipboardPanelDidFinish(_ notification: Notification) {
+        closeClipboardPanel(restorePreviousApplication: true)
+    }
+
+    @objc private func clipboardPanelDidRequestClose(_ notification: Notification) {
+        closeClipboardPanel(restorePreviousApplication: true)
+    }
+
+    private func closeClipboardPanel(
+        restorePreviousApplication: Bool,
+        hideWindow: Bool = false
+    ) {
+        guard activeClipboardWindow != nil || activeClipboardViewModel != nil else { return }
+        clipboardFocusWorkItem?.cancel()
+        clipboardFocusWorkItem = nil
+        removeClipboardOutsideClickMonitors()
+        if let observer = clipboardWindowResignObserver {
+            NotificationCenter.default.removeObserver(observer)
+            clipboardWindowResignObserver = nil
+        }
+
+        let window = activeClipboardWindow
+        let viewModel = activeClipboardViewModel
+        activeClipboardWindow = nil
+        activeClipboardViewModel = nil
+
+        viewModel?.close(force: true)
+        viewModel?.currentView = .home
+        viewModel?.clipboardOwnsKeyboardFocus = false
+        if let keyboardWindow = window as? BoringNotchSkyLightWindow {
+            keyboardWindow.acceptsKeyboardInput = false
+        }
+        if hideWindow {
+            window?.orderOut(nil)
+        }
+        window?.resignKey()
+
+        let previousApplication = clipboardPreviouslyActiveApplication
+        clipboardPreviouslyActiveApplication = nil
+        NSApp.deactivate()
+        if restorePreviousApplication, let previousApplication, !previousApplication.isTerminated {
+            previousApplication.activate(options: [.activateIgnoringOtherApps])
         }
     }
 
@@ -687,6 +969,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let selectedScreenChanged = Notification.Name("SelectedScreenChanged")
     static let notchHeightChanged = Notification.Name("NotchHeightChanged")
+    static let notchContentHeightChanged = Notification.Name("NotchContentHeightChanged")
     static let showOnAllDisplaysChanged = Notification.Name("showOnAllDisplaysChanged")
     static let automaticallySwitchDisplayChanged = Notification.Name("automaticallySwitchDisplayChanged")
     static let expandedDragDetectionChanged = Notification.Name("expandedDragDetectionChanged")

@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D3C100052F00000100000001 /* ClipboardCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100152F00000100000001 /* ClipboardCapture.swift */; };
+		D3C100062F00000100000001 /* ClipboardModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100162F00000100000001 /* ClipboardModels.swift */; };
+		D3C100072F00000100000001 /* ClipboardHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100172F00000100000001 /* ClipboardHistoryStore.swift */; };
 		D3C100042F00000100000001 /* ClipboardHotKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100142F00000100000001 /* ClipboardHotKey.swift */; };
 		D3C100012F00000100000001 /* ClipboardItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100112F00000100000001 /* ClipboardItem.swift */; };
 		D3C100022F00000100000001 /* ClipboardHistoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100122F00000100000001 /* ClipboardHistoryViewModel.swift */; };
@@ -185,6 +188,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		D3C100152F00000100000001 /* ClipboardCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardCapture.swift; sourceTree = "<group>"; };
+		D3C100162F00000100000001 /* ClipboardModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardModels.swift; sourceTree = "<group>"; };
+		D3C100172F00000100000001 /* ClipboardHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryStore.swift; sourceTree = "<group>"; };
 		D3C100142F00000100000001 /* ClipboardHotKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHotKey.swift; sourceTree = "<group>"; };
 		D3C100112F00000100000001 /* ClipboardItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardItem.swift; sourceTree = "<group>"; };
 		D3C100122F00000100000001 /* ClipboardHistoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryViewModel.swift; sourceTree = "<group>"; };
@@ -365,9 +371,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		D3C100222F00000100000001 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				D3C100162F00000100000001 /* ClipboardModels.swift */,
+				D3C100172F00000100000001 /* ClipboardHistoryStore.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
 		D3C100212F00000100000001 /* Clipboard */ = {
 			isa = PBXGroup;
 			children = (
+				D3C100222F00000100000001 /* Core */,
+				D3C100152F00000100000001 /* ClipboardCapture.swift */,
 				D3C100112F00000100000001 /* ClipboardItem.swift */,
 				D3C100122F00000100000001 /* ClipboardHistoryViewModel.swift */,
 				D3C100132F00000100000001 /* ClipboardHistoryView.swift */,
@@ -1027,6 +1044,9 @@
 				11F748842ECB27DC00F841DB /* MusicSlotConfigurationView.swift in Sources */,
 				9A0887352C7AFF8E00C160EA /* TabSelectionView.swift in Sources */,
 				D3C100012F00000100000001 /* ClipboardItem.swift in Sources */,
+				D3C100052F00000100000001 /* ClipboardCapture.swift in Sources */,
+				D3C100062F00000100000001 /* ClipboardModels.swift in Sources */,
+				D3C100072F00000100000001 /* ClipboardHistoryStore.swift in Sources */,
 				D3C100022F00000100000001 /* ClipboardHistoryViewModel.swift in Sources */,
 				D3C100032F00000100000001 /* ClipboardHistoryView.swift in Sources */,
 				112FB7352CCF16F70015238C /* NotchSpaceManager.swift in Sources */,

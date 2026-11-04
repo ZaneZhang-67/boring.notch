@@ -21,26 +21,51 @@ let tabs = [
 ]
 
 struct TabSelectionView: View {
-    @ObservedObject var coordinator = BoringViewCoordinator.shared
+    @EnvironmentObject private var vm: BoringViewModel
     @Namespace var animation
+
+    private var visibleTabs: [TabModel] {
+        tabs.filter { tab in
+            guard tab.view == .clipboard else { return true }
+            guard let screenUUID = vm.screenUUID else { return false }
+            return NSScreen.screen(withUUID: screenUUID)?.isBuiltInDisplay == true
+        }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(tabs) { tab in
-                    TabButton(label: tab.label, icon: tab.icon, selected: coordinator.currentView == tab.view) {
-                        withAnimation(.smooth) {
-                            coordinator.currentView = tab.view
+            ForEach(visibleTabs) { tab in
+                    TabButton(label: tab.label, icon: tab.icon, selected: vm.currentView == tab.view) {
+                        if tab.view == .clipboard {
+                            NotificationCenter.default.post(
+                                name: .clipboardPanelOpenRequested,
+                                object: vm
+                            )
+                        } else if vm.currentView == .clipboard {
+                            NotificationCenter.default.post(
+                                name: .clipboardPanelSwitchRequested,
+                                object: vm,
+                                userInfo: ["targetView": tab.view]
+                            )
+                        } else {
+                            withAnimation(.smooth) {
+                                vm.currentView = tab.view
+                                if vm.notchState == .open {
+                                    vm.open()
+                                }
+                            }
                         }
                     }
                     .frame(height: 26)
-                    .foregroundStyle(tab.view == coordinator.currentView ? .white : .gray)
+                    .foregroundStyle(tab.view == vm.currentView ? .white : .gray)
                     .background {
-                        if tab.view == coordinator.currentView {
+                        if tab.view == vm.currentView {
                             Capsule()
-                                .fill(coordinator.currentView == tab.view ? Color(nsColor: .secondarySystemFill) : Color.clear)
+                                .fill(vm.currentView == tab.view ? Color(nsColor: .secondarySystemFill) : Color.clear)
                                 .matchedGeometryEffect(id: "capsule", in: animation)
                         } else {
                             Capsule()
-                                .fill(coordinator.currentView == tab.view ? Color(nsColor: .secondarySystemFill) : Color.clear)
+                                .fill(vm.currentView == tab.view ? Color(nsColor: .secondarySystemFill) : Color.clear)
                                 .matchedGeometryEffect(id: "capsule", in: animation)
                                 .hidden()
                         }

@@ -83,7 +83,11 @@ final class ClipboardHotKey {
         }
 
         hotKey = registeredHotKey
-        NSLog("[ClipboardHotKey] registered Command+; keyCode=%d modifiers=%d", kVK_ANSI_Semicolon, cmdKey)
+        NSLog(
+            "[ClipboardHotKey] registered Command+; keyCode=%d modifiers=%d",
+            kVK_ANSI_Semicolon,
+            cmdKey
+        )
     }
 
     func unregister() {
@@ -108,7 +112,7 @@ enum HotKeyError: LocalizedError {
         case .eventHandlerRegistrationFailed(let status):
             return "Unable to install clipboard hotkey event handler (OSStatus \(status))."
         case .hotKeyRegistrationFailed(let status):
-            return "Unable to register Command+; for clipboard history (OSStatus \(status))."
+            return "Unable to register the clipboard history shortcut (OSStatus \(status))."
         }
     }
 }
