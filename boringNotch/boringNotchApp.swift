@@ -58,6 +58,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     var quickShareService = QuickShareService.shared
     var whatsNewWindow: NSWindow?
+    private var clipboardWindow: NSWindow?
+    private var clipboardViewModel: BoringViewModel?
     var timer: Timer?
     var closeNotchTask: Task<Void, Never>?
     private var previousScreens: [NSScreen]?
@@ -86,6 +88,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ClipboardHistoryViewModel.shared.stopMonitoring()
         cleanupDragDetectors()
         cleanupWindows()
+        if let clipboardWindow {
+            clipboardWindow.close()
+            NotchSpaceManager.shared.notchSpace.windows.remove(clipboardWindow)
+        }
         XPCHelperClient.shared.stopMonitoringAccessibilityAuthorization()
     }
 
@@ -383,11 +389,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                    let uuid = builtInScreen.displayUUID,
                    let builtInViewModel = self.viewModels[uuid] {
                     viewModel = builtInViewModel
-                } else {
-                    // In single-display mode boringNotch may currently be assigned to an
-                    // external monitor. Avoid triggering that window.
-                    guard self.window?.screen?.isBuiltInDisplay == true else { return }
+                } else if self.window?.screen?.isBuiltInDisplay == true {
                     viewModel = self.vm
+                } else {
+                    // The normal single-display window is assigned to an external monitor.
+                    // Keep that preference intact and maintain a dedicated built-in window
+                    // for clipboard history instead of moving or opening the external one.
+                    if self.clipboardWindow == nil || self.clipboardViewModel == nil {
+                        guard let uuid = builtInScreen.displayUUID else { return }
+                        let clipboardViewModel = BoringViewModel(screenUUID: uuid)
+                        let clipboardWindow = self.createBoringNotchWindow(
+                            for: builtInScreen,
+                            with: clipboardViewModel
+                        )
+                        self.clipboardWindow = clipboardWindow
+                        self.clipboardViewModel = clipboardViewModel
+                    }
+
+                    guard let clipboardWindow = self.clipboardWindow,
+                          let clipboardViewModel = self.clipboardViewModel else { return }
+                    self.positionWindow(clipboardWindow, on: builtInScreen)
+                    viewModel = clipboardViewModel
                 }
 
                 self.closeNotchTask?.cancel()
