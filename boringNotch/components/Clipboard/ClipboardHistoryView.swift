@@ -5,7 +5,9 @@ import SwiftUI
 struct ClipboardHistoryView: View {
     @ObservedObject var model: ClipboardHistoryViewModel
     @ObservedObject var viewModel: BoringViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var searchIsFocused: Bool
+    @Namespace private var previewTransitionNamespace
     @State private var selectedID: UUID?
     @State private var previewItemID: UUID?
     @State private var previewImage: NSImage?
@@ -20,12 +22,19 @@ struct ClipboardHistoryView: View {
         Group {
             if let previewedItem {
                 expandedImagePreview(for: previewedItem)
+                    .transition(previewTransition(scale: 0.96))
             } else {
                 normalContent
+                    .transition(previewTransition(scale: 0.985))
             }
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
+        .transaction { transaction in
+            if reduceMotion {
+                transaction.disablesAnimations = true
+            }
+        }
         .background(
             ClipboardArrowKeyMonitor(
                 isEnabled: viewModel.clipboardOwnsKeyboardFocus,
@@ -70,7 +79,9 @@ struct ClipboardHistoryView: View {
             let originalImage = await model.loadPreviewImage(for: item)
             guard !Task.isCancelled, self.previewItemID == previewItemID else { return }
             if let originalImage {
-                previewImage = originalImage
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                    previewImage = originalImage
+                }
             } else if previewImage == nil {
                 collapseImagePreview()
             }
@@ -118,6 +129,11 @@ struct ClipboardHistoryView: View {
                     .resizable()
                     .scaledToFit()
                     .padding(12)
+                    .matchedGeometryEffect(
+                        id: item.id,
+                        in: previewTransitionNamespace,
+                        isSource: false
+                    )
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -220,6 +236,7 @@ struct ClipboardHistoryView: View {
                         ClipboardHistoryRow(
                             item: item,
                             isSelected: selectedID == item.id,
+                            previewNamespace: previewTransitionNamespace,
                             onSelect: {
                                 selectedID = item.id
                                 copy(item)
@@ -241,6 +258,16 @@ struct ClipboardHistoryView: View {
         }
     }
 
+    private func previewTransition(scale: CGFloat) -> AnyTransition {
+        reduceMotion ? .identity : .opacity.combined(with: .scale(scale: scale))
+    }
+
+    private var previewTransitionAnimation: Animation? {
+        reduceMotion
+            ? nil
+            : .spring(response: 0.36, dampingFraction: 0.86, blendDuration: 0.12)
+    }
+
     @discardableResult
     private func expandSelectedImage() -> Bool {
         guard previewItemID == nil,
@@ -250,8 +277,10 @@ struct ClipboardHistoryView: View {
               }) else { return false }
 
         previewImage = item.thumbnailData.flatMap(NSImage.init(data:))
-        previewItemID = item.id
         searchIsFocused = false
+        withAnimation(previewTransitionAnimation) {
+            previewItemID = item.id
+        }
         NSLog("[ClipboardPreview] expanded id=%@", item.id.uuidString)
         return true
     }
@@ -260,8 +289,10 @@ struct ClipboardHistoryView: View {
         if let previewItemID {
             NSLog("[ClipboardPreview] collapsed id=%@", previewItemID.uuidString)
         }
-        previewItemID = nil
-        previewImage = nil
+        withAnimation(previewTransitionAnimation) {
+            previewItemID = nil
+            previewImage = nil
+        }
         DispatchQueue.main.async { searchIsFocused = true }
     }
 
@@ -409,6 +440,7 @@ private struct ClipboardArrowKeyMonitor: NSViewRepresentable {
 private struct ClipboardHistoryRow: View {
     let item: ClipboardHistoryItem
     let isSelected: Bool
+    let previewNamespace: Namespace.ID
     let onSelect: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
@@ -483,6 +515,11 @@ private struct ClipboardHistoryRow: View {
                 .scaledToFill()
                 .frame(width: 30, height: 30)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
+                .matchedGeometryEffect(
+                    id: item.id,
+                    in: previewNamespace,
+                    isSource: true
+                )
         } else {
             Image(systemName: item.kind.icon)
                 .font(.system(size: 17))
