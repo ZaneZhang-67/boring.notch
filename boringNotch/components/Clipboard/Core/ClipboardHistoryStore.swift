@@ -76,6 +76,7 @@ actor ClipboardHistoryStore {
     ) throws -> ClipboardHistoryItem {
         try Task.checkCancellation()
         try ensureInitialized()
+        try removeUnreferencedBlobFiles()
         guard !payload.items.isEmpty else { throw ClipboardStoreError.emptyPayload }
         guard payload.byteCount <= maximumStorageBytes else {
             throw ClipboardStoreError.itemExceedsStorageLimit(
@@ -382,6 +383,7 @@ actor ClipboardHistoryStore {
 
     func delete(id: UUID) throws {
         try ensureInitialized()
+        try removeUnreferencedBlobFiles()
         let blobs = try transaction { () -> [String] in
             let names = try blobNames(historyIDs: [id.uuidString])
             try withStatement("DELETE FROM history WHERE id = ?") { statement in
@@ -396,12 +398,10 @@ actor ClipboardHistoryStore {
 
     func clear() throws {
         try ensureInitialized()
-        let blobs = try transaction { () -> [String] in
-            let names = try allBlobNames()
+        try transaction {
             try execute("DELETE FROM history")
-            return names
         }
-        try removeBlobFiles(named: blobs)
+        try removeUnreferencedBlobFiles()
     }
 
     func statistics() throws -> Statistics {
@@ -423,6 +423,7 @@ actor ClipboardHistoryStore {
         guard maximumItemCount > 0 else { throw ClipboardStoreError.invalidItemLimit(maximumItemCount) }
         guard maximumStorageBytes > 0 else { throw ClipboardStoreError.invalidStorageLimit(maximumStorageBytes) }
         try ensureInitialized()
+        try removeUnreferencedBlobFiles()
         self.maximumItemCount = maximumItemCount
         self.maximumStorageBytes = maximumStorageBytes
         let prunedBlobNames = try transaction { try pruneIfNeeded() }
@@ -756,23 +757,7 @@ actor ClipboardHistoryStore {
             )
         }
 
-        let referenced = Set(try allBlobNames())
-        let contents = try FileManager.default.contentsOfDirectory(
-            at: blobsDirectory,
-            includingPropertiesForKeys: nil,
-            options: []
-        )
-        for url in contents where !referenced.contains(url.lastPathComponent) {
-            do {
-                try FileManager.default.removeItem(at: url)
-            } catch {
-                NSLog(
-                    "[ClipboardHistoryStore] Deferred orphan blob cleanup for %@: %@",
-                    url.lastPathComponent,
-                    error.localizedDescription
-                )
-            }
-        }
+        try removeUnreferencedBlobFiles()
     }
 
     private func allBlobNames() throws -> [String] {
@@ -810,6 +795,26 @@ actor ClipboardHistoryStore {
         return names
     }
 
+    private func removeUnreferencedBlobFiles() throws {
+        let referenced = Set(try allBlobNames())
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: blobsDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        var failures: [String] = []
+        for url in contents where !referenced.contains(url.lastPathComponent) {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        guard failures.isEmpty else {
+            throw ClipboardStoreError.blobCleanupFailed(failures)
+        }
+    }
+
     private func removeBlobFiles(named names: [String]) throws {
         var failures: [String] = []
         for name in Set(names) {
@@ -822,12 +827,8 @@ actor ClipboardHistoryStore {
                 failures.append("\(name): \(error.localizedDescription)")
             }
         }
-        if !failures.isEmpty {
-            NSLog(
-                "[ClipboardHistoryStore] Deferred cleanup for %d blob(s): %@",
-                failures.count,
-                failures.joined(separator: "; ")
-            )
+        guard failures.isEmpty else {
+            throw ClipboardStoreError.blobCleanupFailed(failures)
         }
     }
 
@@ -949,6 +950,57 @@ actor ClipboardHistoryStore {
     }
 }
 
+enum ClipboardLegacyHistoryFiles {
+    static func removeAll(
+        legacyPersistenceURL: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        let migratedURL = legacyPersistenceURL.appendingPathExtension("migrated")
+        var failures: [String] = []
+        for url in [legacyPersistenceURL, migratedURL]
+            where fileManager.fileExists(atPath: url.path) {
+            do {
+                try fileManager.removeItem(at: url)
+            } catch {
+                failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        guard failures.isEmpty else {
+            throw ClipboardStoreError.legacyCleanupFailed(failures)
+        }
+    }
+}
+
+enum ClipboardHistoryClearIntent {
+    static func url(for legacyPersistenceURL: URL) -> URL {
+        legacyPersistenceURL.appendingPathExtension("clear-requested")
+    }
+
+    static func exists(
+        legacyPersistenceURL: URL,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        fileManager.fileExists(atPath: url(for: legacyPersistenceURL).path)
+    }
+
+    static func persist(legacyPersistenceURL: URL) throws {
+        try Data("clear-requested".utf8).write(
+            to: url(for: legacyPersistenceURL),
+            options: [.atomic, .completeFileProtection]
+        )
+    }
+
+    static func remove(
+        legacyPersistenceURL: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        let intentURL = url(for: legacyPersistenceURL)
+        if fileManager.fileExists(atPath: intentURL.path) {
+            try fileManager.removeItem(at: intentURL)
+        }
+    }
+}
+
 private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 enum ClipboardStoreError: LocalizedError {
@@ -965,6 +1017,7 @@ enum ClipboardStoreError: LocalizedError {
     case missingBlob(String)
     case invalidBlobPath(String)
     case blobCleanupFailed([String])
+    case legacyCleanupFailed([String])
 
     var errorDescription: String? {
         switch self {
@@ -982,6 +1035,7 @@ enum ClipboardStoreError: LocalizedError {
         case .missingBlob(let name): return "Clipboard blob \(name) is missing from disk."
         case .invalidBlobPath(let path): return "Clipboard blob path is invalid: \(path)."
         case .blobCleanupFailed(let failures): return "Unable to clean clipboard blobs: \(failures.joined(separator: "; "))"
+        case .legacyCleanupFailed(let failures): return "Unable to remove legacy clipboard history: \(failures.joined(separator: "; "))"
         }
     }
 }

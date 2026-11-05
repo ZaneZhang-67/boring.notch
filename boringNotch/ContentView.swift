@@ -374,7 +374,7 @@ struct ContentView: View {
                     case .clipboard:
                         if let screenUUID = vm.screenUUID,
                            NSScreen.screen(withUUID: screenUUID)?.isBuiltInDisplay == true {
-                            ClipboardHistoryView()
+                            ClipboardHistoryView(viewModel: vm)
                         } else {
                             NotchHomeView(albumArtNamespace: albumArtNamespace)
                         }

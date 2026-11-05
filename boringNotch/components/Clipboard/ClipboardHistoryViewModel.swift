@@ -1,6 +1,8 @@
 import AppKit
 import Defaults
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 @MainActor
 final class ClipboardHistoryViewModel: ObservableObject {
@@ -29,7 +31,10 @@ final class ClipboardHistoryViewModel: ObservableObject {
     private var ingestionWorkerID: UUID?
     private var pendingCaptures: [CapturedClipboard] = []
     private var searchTask: Task<Void, Never>?
+    private var reloadGeneration: UInt64 = 0
     private var migrationTask: Task<Void, Never>?
+    private var clearTask: Task<Void, Never>?
+    @Published private(set) var isClearing = false
     private var copyingItemID: UUID?
     private var hasMigratedLegacyHistory = false
 
@@ -54,11 +59,25 @@ final class ClipboardHistoryViewModel: ObservableObject {
             NSLog("[ClipboardHistory] Storage initialization failed: %@", error.localizedDescription)
         }
 
-        migrationTask = Task { [weak self] in
-            guard let self else { return }
-            await self.migrateLegacyHistoryIfNeeded()
-            guard !Task.isCancelled else { return }
-            await self.reload()
+        isClearing = ClipboardHistoryClearIntent.exists(
+            legacyPersistenceURL: legacyPersistenceURL
+        )
+        if isClearing, let store {
+            clearTask = Task { [weak self] in
+                guard let self else { return }
+                await self.performClear(
+                    store: store,
+                    migrationToCancel: nil,
+                    ingestionToCancel: nil
+                )
+            }
+        } else {
+            migrationTask = Task { [weak self] in
+                guard let self else { return }
+                await self.migrateLegacyHistoryIfNeeded()
+                guard !Task.isCancelled else { return }
+                await self.reload()
+            }
         }
     }
 
@@ -67,6 +86,7 @@ final class ClipboardHistoryViewModel: ObservableObject {
         ingestionTask?.cancel()
         searchTask?.cancel()
         migrationTask?.cancel()
+        clearTask?.cancel()
     }
 
     func startMonitoring() {
@@ -107,11 +127,13 @@ final class ClipboardHistoryViewModel: ObservableObject {
                 await self?.reload()
             } catch {
                 self?.report(error)
+                await self?.reload()
             }
         }
     }
 
     func captureCurrentClipboard() {
+        guard !isClearing else { return }
         lastChangeCount = pasteboard.changeCount
         captureAndEnqueue()
     }
@@ -165,6 +187,43 @@ final class ClipboardHistoryViewModel: ObservableObject {
         }
     }
 
+    func loadPreviewImage(for item: ClipboardHistoryItem) async -> NSImage? {
+        guard item.kind == .image, let store else { return nil }
+        do {
+            let payload = try await store.loadPayload(id: item.id)
+            try Task.checkCancellation()
+            let imageData = payload.items
+                .flatMap(\.representations)
+                .compactMap { representation -> Data? in
+                    guard representation.typeIdentifier != ClipboardRepresentation.securityScopedBookmarkType,
+                          let contentType = UTType(representation.typeIdentifier),
+                          contentType.conforms(to: .image) else { return nil }
+                    return representation.data
+                }
+            let cgImage = try await Task.detached(priority: .userInitiated) {
+                for data in imageData {
+                    try Task.checkCancellation()
+                    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                          let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { continue }
+                    try Task.checkCancellation()
+                    return image
+                }
+                throw ClipboardHistoryError.imagePreviewUnavailable
+            }.value
+            try Task.checkCancellation()
+            return NSImage(
+                cgImage: cgImage,
+                size: NSSize(width: cgImage.width, height: cgImage.height)
+            )
+        } catch is CancellationError {
+            return nil
+        } catch {
+            report(error)
+            await reload()
+            return nil
+        }
+    }
+
     func togglePinned(_ item: ClipboardHistoryItem) {
         guard let store else {
             report(ClipboardHistoryError.storageUnavailable)
@@ -191,6 +250,7 @@ final class ClipboardHistoryViewModel: ObservableObject {
                 await self?.reload()
             } catch {
                 self?.report(error)
+                await self?.reload()
             }
         }
     }
@@ -200,19 +260,64 @@ final class ClipboardHistoryViewModel: ObservableObject {
             report(ClipboardHistoryError.storageUnavailable)
             return
         }
-        ingestionTask?.cancel()
+        guard clearTask == nil else { return }
+
+        do {
+            try ClipboardHistoryClearIntent.persist(
+                legacyPersistenceURL: legacyPersistenceURL
+            )
+        } catch {
+            report(error)
+            return
+        }
+
+        isClearing = true
+        searchTask?.cancel()
+        searchTask = nil
+        reloadGeneration &+= 1
+        let ingestionToCancel = ingestionTask
+        ingestionToCancel?.cancel()
         ingestionTask = nil
         ingestionWorkerID = nil
         pendingCaptures.removeAll()
-        migrationTask?.cancel()
+        let migrationToCancel = migrationTask
+        migrationToCancel?.cancel()
         migrationTask = nil
-        Task { [weak self] in
-            do {
-                try await store.clear()
-                await self?.reload()
-            } catch {
-                self?.report(error)
-            }
+
+        clearTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performClear(
+                store: store,
+                migrationToCancel: migrationToCancel,
+                ingestionToCancel: ingestionToCancel
+            )
+        }
+    }
+
+    private func performClear(
+        store: ClipboardHistoryStore,
+        migrationToCancel: Task<Void, Never>?,
+        ingestionToCancel: Task<Void, Never>?
+    ) async {
+        await migrationToCancel?.value
+        await ingestionToCancel?.value
+        do {
+            try ClipboardLegacyHistoryFiles.removeAll(
+                legacyPersistenceURL: legacyPersistenceURL
+            )
+            try await store.clear()
+            try ClipboardHistoryClearIntent.remove(
+                legacyPersistenceURL: legacyPersistenceURL
+            )
+            lastChangeCount = pasteboard.changeCount
+            isClearing = false
+            clearTask = nil
+            await reload()
+            NSLog("[ClipboardHistory] Clear completed and restart intent removed")
+        } catch {
+            clearTask = nil
+            await reload()
+            report(error)
         }
     }
 
@@ -221,6 +326,7 @@ final class ClipboardHistoryViewModel: ObservableObject {
     }
 
     private func pollPasteboard() {
+        guard !isClearing else { return }
         let currentChangeCount = pasteboard.changeCount
         guard currentChangeCount != lastChangeCount else { return }
         lastChangeCount = currentChangeCount
@@ -230,7 +336,7 @@ final class ClipboardHistoryViewModel: ObservableObject {
     }
 
     private func captureAndEnqueue() {
-        guard let store else { return }
+        guard !isClearing, let store else { return }
         do {
             switch try ClipboardCapture.read(from: pasteboard) {
             case .ignored(let reason):
@@ -264,7 +370,7 @@ final class ClipboardHistoryViewModel: ObservableObject {
             }
 
             while !Task.isCancelled, Defaults[.clipboardHistoryEnabled] {
-                guard !self.pendingCaptures.isEmpty else { return }
+                guard !self.isClearing, !self.pendingCaptures.isEmpty else { return }
                 let capture = self.pendingCaptures.removeFirst()
                 do {
                     let storedItem = try await store.upsert(
@@ -289,6 +395,7 @@ final class ClipboardHistoryViewModel: ObservableObject {
                     return
                 } catch {
                     self.report(error)
+                    await self.reload()
                 }
             }
         }
@@ -308,6 +415,8 @@ final class ClipboardHistoryViewModel: ObservableObject {
 
     private func reload() async {
         guard let store else { return }
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
         do {
             let query = searchText
             async let fetchedItems = store.fetch(
@@ -316,7 +425,7 @@ final class ClipboardHistoryViewModel: ObservableObject {
             )
             async let fetchedStatistics = store.statistics()
             let (newItems, newStatistics) = try await (fetchedItems, fetchedStatistics)
-            guard query == searchText else { return }
+            guard generation == reloadGeneration, query == searchText else { return }
             items = newItems
             statistics = newStatistics
         } catch {
@@ -326,6 +435,9 @@ final class ClipboardHistoryViewModel: ObservableObject {
 
     private func migrateLegacyHistoryIfNeeded() async {
         guard !hasMigratedLegacyHistory, let store else { return }
+        guard !ClipboardHistoryClearIntent.exists(
+            legacyPersistenceURL: legacyPersistenceURL
+        ) else { return }
         hasMigratedLegacyHistory = true
         guard FileManager.default.fileExists(atPath: legacyPersistenceURL.path) else { return }
 
@@ -337,6 +449,9 @@ final class ClipboardHistoryViewModel: ObservableObject {
 
             for item in legacyItems.reversed() {
                 try Task.checkCancellation()
+                guard !ClipboardHistoryClearIntent.exists(
+                    legacyPersistenceURL: legacyPersistenceURL
+                ) else { throw CancellationError() }
                 let migration = legacyCapture(for: item)
                 _ = try await store.upsert(
                     payload: migration.payload,
@@ -348,6 +463,10 @@ final class ClipboardHistoryViewModel: ObservableObject {
                 )
             }
 
+            try Task.checkCancellation()
+            guard !ClipboardHistoryClearIntent.exists(
+                legacyPersistenceURL: legacyPersistenceURL
+            ) else { throw CancellationError() }
             let migratedURL = legacyPersistenceURL.appendingPathExtension("migrated")
             if FileManager.default.fileExists(atPath: migratedURL.path) {
                 try FileManager.default.removeItem(at: migratedURL)
@@ -449,12 +568,15 @@ final class ClipboardHistoryViewModel: ObservableObject {
 
 enum ClipboardHistoryError: LocalizedError {
     case storageUnavailable
+    case imagePreviewUnavailable
     case legacyMigrationFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .storageUnavailable:
             return "Clipboard history storage is unavailable."
+        case .imagePreviewUnavailable:
+            return "The original clipboard image is unavailable for preview."
         case .legacyMigrationFailed(let reason):
             return "Unable to migrate the previous clipboard history: \(reason)"
         }

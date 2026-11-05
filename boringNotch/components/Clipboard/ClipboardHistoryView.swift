@@ -4,19 +4,100 @@ import SwiftUI
 @MainActor
 struct ClipboardHistoryView: View {
     @ObservedObject var model: ClipboardHistoryViewModel
+    @ObservedObject var viewModel: BoringViewModel
     @FocusState private var searchIsFocused: Bool
     @State private var selectedID: UUID?
+    @State private var hoveredImageID: UUID?
+    @State private var previewItemID: UUID?
+    @State private var previewImage: NSImage?
     @State private var confirmClear = false
 
-    init(model: ClipboardHistoryViewModel) {
-        self.model = model
-    }
-
-    init() {
-        self.model = ClipboardHistoryViewModel.shared
+    init(viewModel: BoringViewModel) {
+        self.model = .shared
+        self.viewModel = viewModel
     }
 
     var body: some View {
+        Group {
+            if let previewedItem {
+                expandedImagePreview(for: previewedItem)
+            } else {
+                normalContent
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 8)
+        .background(
+            ClipboardArrowKeyMonitor(
+                isEnabled: viewModel.clipboardOwnsKeyboardFocus,
+                isPreviewExpanded: previewItemID != nil,
+                onRightArrow: { expandHoveredImage() },
+                onLeftArrow: {
+                    guard previewItemID != nil else { return false }
+                    collapseImagePreview()
+                    return true
+                }
+            )
+        )
+        .onAppear {
+            selectFirstItemIfNeeded()
+            guard viewModel.clipboardOwnsKeyboardFocus else { return }
+            DispatchQueue.main.async { searchIsFocused = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .clipboardPanelDidOpen)) { notification in
+            guard let openedViewModel = notification.object as? BoringViewModel,
+                  openedViewModel === viewModel else { return }
+            selectedID = nil
+            hoveredImageID = nil
+            previewItemID = nil
+            previewImage = nil
+            model.searchText = ""
+            DispatchQueue.main.async { searchIsFocused = true }
+        }
+        .onChange(of: model.items) { _, items in
+            selectFirstItemIfNeeded()
+            if let previewItemID, !items.contains(where: { $0.id == previewItemID }) {
+                collapseImagePreview()
+            }
+        }
+        .onChange(of: model.searchText) { _, _ in
+            hoveredImageID = nil
+        }
+        .onKeyPress(.upArrow) {
+            moveSelection(by: -1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            moveSelection(by: 1)
+            return .handled
+        }
+        .onExitCommand {
+            NotificationCenter.default.post(name: .clipboardPanelShouldClose, object: nil)
+        }
+        .task(id: previewItemID) {
+            guard let previewItemID,
+                  let item = model.items.first(where: { $0.id == previewItemID }) else { return }
+            let originalImage = await model.loadPreviewImage(for: item)
+            guard !Task.isCancelled, self.previewItemID == previewItemID else { return }
+            if let originalImage {
+                previewImage = originalImage
+            } else if previewImage == nil {
+                collapseImagePreview()
+            }
+        }
+        .confirmationDialog(
+            "Clear all clipboard history?",
+            isPresented: $confirmClear,
+            titleVisibility: .visible
+        ) {
+            Button("Clear History", role: .destructive) { model.clear() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes pinned and unpinned entries.")
+        }
+    }
+
+    private var normalContent: some View {
         VStack(spacing: 6) {
             searchBar
 
@@ -30,41 +111,46 @@ struct ClipboardHistoryView: View {
                 historyList
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 8)
-        .onAppear {
-            selectFirstItemIfNeeded()
-            DispatchQueue.main.async { searchIsFocused = true }
+    }
+
+    private var previewedItem: ClipboardHistoryItem? {
+        guard let previewItemID else { return nil }
+        return model.items.first(where: { $0.id == previewItemID })
+    }
+
+    private func expandedImagePreview(for item: ClipboardHistoryItem) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.black.opacity(0.72))
+
+            if let previewImage {
+                Image(nsImage: previewImage)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(12)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            VStack {
+                HStack(spacing: 8) {
+                    Text(item.title.isEmpty ? "Image" : item.title)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Label("Left arrow to shrink", systemImage: "arrow.left")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
+                Spacer()
+            }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .clipboardPanelDidOpen)) { _ in
-            selectedID = nil
-            model.searchText = ""
-            DispatchQueue.main.async { searchIsFocused = true }
-        }
-        .onChange(of: model.items) { _, _ in
-            selectFirstItemIfNeeded()
-        }
-        .onKeyPress(.upArrow) {
-            moveSelection(by: -1)
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            moveSelection(by: 1)
-            return .handled
-        }
-        .onExitCommand {
-            NotificationCenter.default.post(name: .clipboardPanelShouldClose, object: nil)
-        }
-        .confirmationDialog(
-            "Clear all clipboard history?",
-            isPresented: $confirmClear,
-            titleVisibility: .visible
-        ) {
-            Button("Clear History", role: .destructive) { model.clear() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This permanently removes pinned and unpinned entries.")
-        }
+        .contentShape(Rectangle())
+        .accessibilityLabel("Expanded clipboard image")
+        .accessibilityHint("Press the left arrow key to return to the clipboard list")
     }
 
     private var searchBar: some View {
@@ -102,8 +188,8 @@ struct ClipboardHistoryView: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.plain)
-            .disabled(model.statistics.itemCount == 0)
-            .help("Clear history")
+            .disabled(model.statistics.itemCount == 0 && !model.isClearing)
+            .help(model.isClearing ? "Retry clearing history" : "Clear history")
         }
         .padding(.horizontal, 9)
         .frame(height: 30)
@@ -157,7 +243,14 @@ struct ClipboardHistoryView: View {
                                 copy(item)
                             },
                             onPin: { model.togglePinned(item) },
-                            onDelete: { model.delete(item) }
+                            onDelete: { model.delete(item) },
+                            onHoverChange: { hovering in
+                                if hovering, item.kind == .image {
+                                    hoveredImageID = item.id
+                                } else if hoveredImageID == item.id {
+                                    hoveredImageID = nil
+                                }
+                            }
                         )
                         .id(item.id)
                     }
@@ -171,6 +264,32 @@ struct ClipboardHistoryView: View {
                 }
             }
         }
+    }
+
+    @discardableResult
+    private func expandHoveredImage() -> Bool {
+        guard previewItemID == nil,
+              let imageID = hoveredImageID,
+              let item = model.items.first(where: {
+                  $0.id == imageID && $0.kind == .image
+              }) else { return false }
+
+        previewImage = item.thumbnailData.flatMap(NSImage.init(data:))
+        previewItemID = item.id
+        hoveredImageID = nil
+        searchIsFocused = false
+        NSLog("[ClipboardPreview] expanded id=%@", item.id.uuidString)
+        return true
+    }
+
+    private func collapseImagePreview() {
+        if let previewItemID {
+            NSLog("[ClipboardPreview] collapsed id=%@", previewItemID.uuidString)
+        }
+        previewItemID = nil
+        previewImage = nil
+        hoveredImageID = nil
+        DispatchQueue.main.async { searchIsFocused = true }
     }
 
     private func selectFirstItemIfNeeded() {
@@ -201,12 +320,103 @@ struct ClipboardHistoryView: View {
 
 }
 
+private struct ClipboardArrowKeyMonitor: NSViewRepresentable {
+    let isEnabled: Bool
+    let isPreviewExpanded: Bool
+    let onRightArrow: () -> Bool
+    let onLeftArrow: () -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onRightArrow: onRightArrow, onLeftArrow: onLeftArrow)
+    }
+
+    func makeNSView(context: Context) -> KeySinkView {
+        let view = KeySinkView(frame: .zero)
+        context.coordinator.keySinkView = view
+        context.coordinator.install()
+        return view
+    }
+
+    func updateNSView(_ nsView: KeySinkView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.isEnabled = isEnabled
+        coordinator.isPreviewExpanded = isPreviewExpanded
+        coordinator.onRightArrow = onRightArrow
+        coordinator.onLeftArrow = onLeftArrow
+        guard isEnabled,
+              isPreviewExpanded,
+              nsView.window?.isKeyWindow == true,
+              nsView.window?.firstResponder !== nsView else { return }
+        DispatchQueue.main.async { [weak nsView, weak coordinator] in
+            guard let nsView,
+                  let coordinator,
+                  coordinator.isEnabled,
+                  coordinator.isPreviewExpanded,
+                  nsView.window?.isKeyWindow == true else { return }
+            nsView.window?.makeFirstResponder(nsView)
+        }
+    }
+
+    static func dismantleNSView(_ nsView: KeySinkView, coordinator: Coordinator) {
+        coordinator.keySinkView = nil
+        coordinator.uninstall()
+    }
+
+    final class KeySinkView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    final class Coordinator {
+        weak var keySinkView: KeySinkView?
+        var isEnabled = false
+        var isPreviewExpanded = false
+        var onRightArrow: () -> Bool
+        var onLeftArrow: () -> Bool
+        private var monitor: Any?
+
+        init(onRightArrow: @escaping () -> Bool, onLeftArrow: @escaping () -> Bool) {
+            self.onRightArrow = onRightArrow
+            self.onLeftArrow = onLeftArrow
+        }
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      self.isEnabled,
+                      let keySinkView = self.keySinkView,
+                      keySinkView.window?.isKeyWindow == true else { return event }
+                switch event.keyCode {
+                case 124:
+                    return self.onRightArrow() ? nil : event
+                case 123:
+                    return self.onLeftArrow() ? nil : event
+                default:
+                    return event
+                }
+            }
+        }
+
+        func uninstall() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+
+        deinit {
+            uninstall()
+        }
+    }
+}
+
 private struct ClipboardHistoryRow: View {
     let item: ClipboardHistoryItem
     let isSelected: Bool
     let onSelect: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
+    let onHoverChange: (Bool) -> Void
     @State private var hovering = false
 
     var body: some View {
@@ -214,7 +424,6 @@ private struct ClipboardHistoryRow: View {
             Button(action: onSelect) {
                 HStack(spacing: 8) {
                     preview
-                        .frame(width: 30, height: 30)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) {
                             if item.isPinned {
@@ -262,7 +471,15 @@ private struct ClipboardHistoryRow: View {
             isSelected ? Color.accentColor.opacity(0.28) : (hovering ? Color.white.opacity(0.09) : Color.white.opacity(0.04)),
             in: RoundedRectangle(cornerRadius: 8)
         )
-        .onHover { hovering = $0 }
+        .onHover { isHovering in
+            hovering = isHovering
+            onHoverChange(isHovering)
+        }
+        .onDisappear {
+            if hovering {
+                onHoverChange(false)
+            }
+        }
         .contextMenu {
             Button("Copy", action: onSelect)
             Button(item.isPinned ? "Unpin" : "Pin", action: onPin)
@@ -277,11 +494,13 @@ private struct ClipboardHistoryRow: View {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()
+                .frame(width: 30, height: 30)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
         } else {
             Image(systemName: item.kind.icon)
                 .font(.system(size: 17))
                 .foregroundStyle(.secondary)
+                .frame(width: 30, height: 30)
         }
     }
 }
