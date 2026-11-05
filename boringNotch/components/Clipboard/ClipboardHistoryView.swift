@@ -9,6 +9,8 @@ struct ClipboardHistoryView: View {
     @FocusState private var searchIsFocused: Bool
     @Namespace private var previewTransitionNamespace
     @State private var selectedID: UUID?
+    @State private var listScrollPositionID: UUID?
+    @State private var previewReturnPositionID: UUID?
     @State private var previewItemID: UUID?
     @State private var previewImage: NSImage?
     @State private var confirmClear = false
@@ -58,6 +60,8 @@ struct ClipboardHistoryView: View {
             guard let openedViewModel = notification.object as? BoringViewModel,
                   openedViewModel === viewModel else { return }
             selectedID = nil
+            listScrollPositionID = nil
+            previewReturnPositionID = nil
             previewItemID = nil
             previewImage = nil
             model.searchText = ""
@@ -66,6 +70,17 @@ struct ClipboardHistoryView: View {
         }
         .onChange(of: model.items) { _, items in
             selectFirstItemIfNeeded()
+            let fallbackID = selectedID.flatMap { selectedID in
+                items.contains(where: { $0.id == selectedID }) ? selectedID : nil
+            } ?? items.first?.id
+            if let listScrollPositionID,
+               !items.contains(where: { $0.id == listScrollPositionID }) {
+                self.listScrollPositionID = fallbackID
+            }
+            if let previewReturnPositionID,
+               !items.contains(where: { $0.id == previewReturnPositionID }) {
+                self.previewReturnPositionID = fallbackID
+            }
             if let previewItemID, !items.contains(where: { $0.id == previewItemID }) {
                 collapseImagePreview()
             }
@@ -229,31 +244,30 @@ struct ClipboardHistoryView: View {
     }
 
     private var historyList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 3) {
-                    ForEach(model.items) { item in
-                        ClipboardHistoryRow(
-                            item: item,
-                            isSelected: selectedID == item.id,
-                            previewNamespace: previewTransitionNamespace,
-                            onSelect: {
-                                selectedID = item.id
-                                copy(item)
-                            },
-                            onPin: { model.togglePinned(item) },
-                            onDelete: { model.delete(item) }
-                        )
-                        .id(item.id)
-                    }
+        ScrollView {
+            LazyVStack(spacing: 3) {
+                ForEach(model.items) { item in
+                    ClipboardHistoryRow(
+                        item: item,
+                        isSelected: selectedID == item.id,
+                        previewNamespace: previewTransitionNamespace,
+                        onSelect: {
+                            selectedID = item.id
+                            copy(item)
+                        },
+                        onPin: { model.togglePinned(item) },
+                        onDelete: { model.delete(item) }
+                    )
+                    .id(item.id)
                 }
             }
-            .onChange(of: selectedID) { _, id in
-                if let id {
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo(id, anchor: .center)
-                    }
-                }
+            .scrollTargetLayout()
+        }
+        .scrollPosition(id: $listScrollPositionID, anchor: .center)
+        .onChange(of: selectedID) { _, id in
+            guard let id else { return }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+                listScrollPositionID = id
             }
         }
     }
@@ -276,6 +290,7 @@ struct ClipboardHistoryView: View {
                   $0.id == imageID && $0.kind == .image
               }) else { return false }
 
+        previewReturnPositionID = listScrollPositionID ?? selectedID
         previewImage = item.thumbnailData.flatMap(NSImage.init(data:))
         searchIsFocused = false
         withAnimation(previewTransitionAnimation) {
@@ -288,6 +303,11 @@ struct ClipboardHistoryView: View {
     private func collapseImagePreview() {
         if let previewItemID {
             NSLog("[ClipboardPreview] collapsed id=%@", previewItemID.uuidString)
+        }
+        let returnPositionID = previewReturnPositionID
+        previewReturnPositionID = nil
+        if let returnPositionID {
+            listScrollPositionID = returnPositionID
         }
         withAnimation(previewTransitionAnimation) {
             previewItemID = nil
