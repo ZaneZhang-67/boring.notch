@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D3C100052F00000100000001 /* ClipboardCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100152F00000100000001 /* ClipboardCapture.swift */; };
+		D3C100062F00000100000001 /* ClipboardModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100162F00000100000001 /* ClipboardModels.swift */; };
+		D3C100072F00000100000001 /* ClipboardHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100172F00000100000001 /* ClipboardHistoryStore.swift */; };
+		D3C100042F00000100000001 /* ClipboardHotKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100142F00000100000001 /* ClipboardHotKey.swift */; };
+		D3C100012F00000100000001 /* ClipboardItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100112F00000100000001 /* ClipboardItem.swift */; };
+		D3C100022F00000100000001 /* ClipboardHistoryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100122F00000100000001 /* ClipboardHistoryViewModel.swift */; };
+		D3C100032F00000100000001 /* ClipboardHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C100132F00000100000001 /* ClipboardHistoryView.swift */; };
 		1100290C2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1100290B2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift */; };
 		110029272E84FD4C00035A57 /* TemporaryFileStorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110029262E84FD4C00035A57 /* TemporaryFileStorageService.swift */; };
 		1100292A2E8691B400035A57 /* FileShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110029292E8691B400035A57 /* FileShareView.swift */; };
@@ -181,6 +188,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		D3C100152F00000100000001 /* ClipboardCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardCapture.swift; sourceTree = "<group>"; };
+		D3C100162F00000100000001 /* ClipboardModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardModels.swift; sourceTree = "<group>"; };
+		D3C100172F00000100000001 /* ClipboardHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryStore.swift; sourceTree = "<group>"; };
+		D3C100142F00000100000001 /* ClipboardHotKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHotKey.swift; sourceTree = "<group>"; };
+		D3C100112F00000100000001 /* ClipboardItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardItem.swift; sourceTree = "<group>"; };
+		D3C100122F00000100000001 /* ClipboardHistoryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryViewModel.swift; sourceTree = "<group>"; };
+		D3C100132F00000100000001 /* ClipboardHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryView.swift; sourceTree = "<group>"; };
 		1100290B2E847E2800035A57 /* NSItemProvider+LoadHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSItemProvider+LoadHelpers.swift"; sourceTree = "<group>"; };
 		110029262E84FD4C00035A57 /* TemporaryFileStorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryFileStorageService.swift; sourceTree = "<group>"; };
 		110029292E8691B400035A57 /* FileShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileShareView.swift; sourceTree = "<group>"; };
@@ -357,6 +371,27 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		D3C100222F00000100000001 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				D3C100162F00000100000001 /* ClipboardModels.swift */,
+				D3C100172F00000100000001 /* ClipboardHistoryStore.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		D3C100212F00000100000001 /* Clipboard */ = {
+			isa = PBXGroup;
+			children = (
+				D3C100222F00000100000001 /* Core */,
+				D3C100152F00000100000001 /* ClipboardCapture.swift */,
+				D3C100112F00000100000001 /* ClipboardItem.swift */,
+				D3C100122F00000100000001 /* ClipboardHistoryViewModel.swift */,
+				D3C100132F00000100000001 /* ClipboardHistoryView.swift */,
+			);
+			path = Clipboard;
+			sourceTree = "<group>";
+		};
 		1113ABB82E80E27000EC13B2 /* Models */ = {
 			isa = PBXGroup;
 			children = (
@@ -486,6 +521,7 @@
 		1471639B2C5D362F0068B555 /* components */ = {
 			isa = PBXGroup;
 			children = (
+				D3C100212F00000100000001 /* Clipboard */,
 				B141C23B2CA5F50900AC8CC8 /* Onboarding */,
 				B1C448992C97375A001F0858 /* Tips */,
 				14C08BB72C8DE49E000F8AA0 /* Calendar */,
@@ -745,6 +781,7 @@
 			isa = PBXGroup;
 			children = (
 				B186543B2C6F49AE000B926A /* ShortcutConstants.swift */,
+				D3C100142F00000100000001 /* ClipboardHotKey.swift */,
 			);
 			path = Shortcuts;
 			sourceTree = "<group>";
@@ -912,6 +949,7 @@
 				147163982C5D35B70068B555 /* MusicVisualizer.swift in Sources */,
 				11CC44A22CEE614100C7244B /* BoringViewCoordinator.swift in Sources */,
 				B186543C2C6F49AE000B926A /* ShortcutConstants.swift in Sources */,
+				D3C100042F00000100000001 /* ClipboardHotKey.swift in Sources */,
 				11A45C792E34E63100CEB175 /* MediaChecker.swift in Sources */,
 				B1D365CE2C6A979C0047BDBC /* LiveActivityModifier.swift in Sources */,
 				1113ABD02E80E6BB00EC13B2 /* ThumbnailService.swift in Sources */,
@@ -1005,6 +1043,12 @@
 				B1FEB4992C7686630066EBBC /* PanGesture.swift in Sources */,
 				11F748842ECB27DC00F841DB /* MusicSlotConfigurationView.swift in Sources */,
 				9A0887352C7AFF8E00C160EA /* TabSelectionView.swift in Sources */,
+				D3C100012F00000100000001 /* ClipboardItem.swift in Sources */,
+				D3C100052F00000100000001 /* ClipboardCapture.swift in Sources */,
+				D3C100062F00000100000001 /* ClipboardModels.swift in Sources */,
+				D3C100072F00000100000001 /* ClipboardHistoryStore.swift in Sources */,
+				D3C100022F00000100000001 /* ClipboardHistoryViewModel.swift in Sources */,
+				D3C100032F00000100000001 /* ClipboardHistoryView.swift in Sources */,
 				112FB7352CCF16F70015238C /* NotchSpaceManager.swift in Sources */,
 				14FC6E502C7DED5600C7BEA5 /* DataTypes+Extensions.swift in Sources */,
 				1153BD982D9881F900979FB0 /* AppleScriptHelper.swift in Sources */,

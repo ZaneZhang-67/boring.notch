@@ -43,6 +43,22 @@ struct ContentView: View {
     private let extendedHoverPadding: CGFloat = 30
     private let zeroHeightHoverPadding: CGFloat = 10
 
+    private var preferredWindowHeight: CGFloat {
+        max(windowSize.height, vm.notchSize.height + shadowPadding)
+    }
+
+    private var keepsClipboardOpenForKeyboard: Bool {
+        vm.currentView == .clipboard && vm.clipboardOwnsKeyboardFocus
+    }
+
+    private func publishPreferredWindowHeight() {
+        NotificationCenter.default.post(
+            name: .notchContentHeightChanged,
+            object: vm,
+            userInfo: ["height": preferredWindowHeight]
+        )
+    }
+
     private var topCornerRadius: CGFloat {
        ((vm.notchState == .open) && Defaults[.cornerRadiusScaling])
                 ? cornerRadiusInsets.opened.top
@@ -153,7 +169,7 @@ struct ContentView: View {
                                 try? await Task.sleep(for: .milliseconds(100))
                                 guard !Task.isCancelled else { return }
                                 await MainActor.run {
-                                    if self.vm.notchState == .open && !self.isHovering && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
+                                    if self.vm.notchState == .open && !self.isHovering && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose && !self.keepsClipboardOpenForKeyboard {
                                         self.vm.close()
                                     }
                                 }
@@ -174,7 +190,7 @@ struct ContentView: View {
                                 try? await Task.sleep(for: .milliseconds(100))
                                 guard !Task.isCancelled else { return }
                                 await MainActor.run {
-                                    if !self.vm.isBatteryPopoverActive && !self.isHovering && self.vm.notchState == .open && !SharingStateManager.shared.preventNotchClose {
+                                    if !self.vm.isBatteryPopoverActive && !self.isHovering && self.vm.notchState == .open && !SharingStateManager.shared.preventNotchClose && !self.keepsClipboardOpenForKeyboard {
                                         self.vm.close()
                                     }
                                 }
@@ -203,7 +219,7 @@ struct ContentView: View {
             }
         }
         .padding(.bottom, 8)
-        .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
+        .frame(maxWidth: windowSize.width, maxHeight: preferredWindowHeight, alignment: .top)
         .compositingGroup()
         .scaleEffect(
             x: gestureScale,
@@ -214,12 +230,18 @@ struct ContentView: View {
         .background(dragDetector)
         .preferredColorScheme(.dark)
         .environmentObject(vm)
+        .onAppear {
+            publishPreferredWindowHeight()
+        }
+        .onChange(of: vm.notchSize) { _, _ in
+            publishPreferredWindowHeight()
+        }
         .onChange(of: vm.anyDropZoneTargeting) { _, isTargeted in
             anyDropDebounceTask?.cancel()
 
             if isTargeted {
                 if vm.notchState == .closed {
-                    coordinator.currentView = .shelf
+                    vm.currentView = .shelf
                     doOpen()
                 }
                 return
@@ -344,11 +366,18 @@ struct ContentView: View {
               .zIndex(2)
             if vm.notchState == .open {
                 VStack {
-                    switch coordinator.currentView {
+                    switch vm.currentView {
                     case .home:
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
                     case .shelf:
                         ShelfView()
+                    case .clipboard:
+                        if let screenUUID = vm.screenUUID,
+                           NSScreen.screen(withUUID: screenUUID)?.isBuiltInDisplay == true {
+                            ClipboardHistoryView(viewModel: vm)
+                        } else {
+                            NotchHomeView(albumArtNamespace: albumArtNamespace)
+                        }
                     }
                 }
                 .transition(
@@ -549,7 +578,7 @@ struct ContentView: View {
                         self.isHovering = false
                     }
                     
-                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
+                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose && !self.keepsClipboardOpenForKeyboard {
                         self.vm.close()
                     }
                 }

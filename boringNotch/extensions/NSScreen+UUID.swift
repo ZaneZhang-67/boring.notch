@@ -10,12 +10,23 @@ import CoreGraphics
 
 extension NSScreen {
     /// Returns a persistent UUID for this display
-    var displayUUID: String? {
+    private var displayID: CGDirectDisplayID? {
         guard let number = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return nil
         }
-        let displayID = CGDirectDisplayID(number.uint32Value)
-        guard let uuid = CGDisplayCreateUUIDFromDisplayID(displayID) else {
+        return CGDirectDisplayID(number.uint32Value)
+    }
+
+    /// Whether this is the MacBook's built-in display rather than an external monitor.
+    var isBuiltInDisplay: Bool {
+        guard let displayID else { return false }
+        return CGDisplayIsBuiltin(displayID) != 0
+    }
+
+    /// Returns a persistent UUID for this display
+    var displayUUID: String? {
+        guard let displayID,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(displayID) else {
             return nil
         }
         let uuidString = CFUUIDCreateString(nil, uuid.takeRetainedValue()) as String
