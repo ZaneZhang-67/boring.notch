@@ -7,7 +7,6 @@ struct ClipboardHistoryView: View {
     @ObservedObject var viewModel: BoringViewModel
     @FocusState private var searchIsFocused: Bool
     @State private var selectedID: UUID?
-    @State private var hoveredImageID: UUID?
     @State private var previewItemID: UUID?
     @State private var previewImage: NSImage?
     @State private var confirmClear = false
@@ -31,7 +30,9 @@ struct ClipboardHistoryView: View {
             ClipboardArrowKeyMonitor(
                 isEnabled: viewModel.clipboardOwnsKeyboardFocus,
                 isPreviewExpanded: previewItemID != nil,
-                onRightArrow: { expandHoveredImage() },
+                onUpArrow: { moveSelectionIfPossible(by: -1) },
+                onDownArrow: { moveSelectionIfPossible(by: 1) },
+                onRightArrow: { expandSelectedImage() },
                 onLeftArrow: {
                     guard previewItemID != nil else { return false }
                     collapseImagePreview()
@@ -48,10 +49,10 @@ struct ClipboardHistoryView: View {
             guard let openedViewModel = notification.object as? BoringViewModel,
                   openedViewModel === viewModel else { return }
             selectedID = nil
-            hoveredImageID = nil
             previewItemID = nil
             previewImage = nil
             model.searchText = ""
+            selectFirstItemIfNeeded()
             DispatchQueue.main.async { searchIsFocused = true }
         }
         .onChange(of: model.items) { _, items in
@@ -59,17 +60,6 @@ struct ClipboardHistoryView: View {
             if let previewItemID, !items.contains(where: { $0.id == previewItemID }) {
                 collapseImagePreview()
             }
-        }
-        .onChange(of: model.searchText) { _, _ in
-            hoveredImageID = nil
-        }
-        .onKeyPress(.upArrow) {
-            moveSelection(by: -1)
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            moveSelection(by: 1)
-            return .handled
         }
         .onExitCommand {
             NotificationCenter.default.post(name: .clipboardPanelShouldClose, object: nil)
@@ -161,14 +151,6 @@ struct ClipboardHistoryView: View {
                 .textFieldStyle(.plain)
                 .focused($searchIsFocused)
                 .onSubmit { copySelectedItem() }
-                .onKeyPress(.upArrow) {
-                    moveSelection(by: -1)
-                    return .handled
-                }
-                .onKeyPress(.downArrow) {
-                    moveSelection(by: 1)
-                    return .handled
-                }
             if !model.searchText.isEmpty {
                 Button {
                     model.searchText = ""
@@ -243,14 +225,7 @@ struct ClipboardHistoryView: View {
                                 copy(item)
                             },
                             onPin: { model.togglePinned(item) },
-                            onDelete: { model.delete(item) },
-                            onHoverChange: { hovering in
-                                if hovering, item.kind == .image {
-                                    hoveredImageID = item.id
-                                } else if hoveredImageID == item.id {
-                                    hoveredImageID = nil
-                                }
-                            }
+                            onDelete: { model.delete(item) }
                         )
                         .id(item.id)
                     }
@@ -267,16 +242,15 @@ struct ClipboardHistoryView: View {
     }
 
     @discardableResult
-    private func expandHoveredImage() -> Bool {
+    private func expandSelectedImage() -> Bool {
         guard previewItemID == nil,
-              let imageID = hoveredImageID,
+              let imageID = selectedID,
               let item = model.items.first(where: {
                   $0.id == imageID && $0.kind == .image
               }) else { return false }
 
         previewImage = item.thumbnailData.flatMap(NSImage.init(data:))
         previewItemID = item.id
-        hoveredImageID = nil
         searchIsFocused = false
         NSLog("[ClipboardPreview] expanded id=%@", item.id.uuidString)
         return true
@@ -288,7 +262,6 @@ struct ClipboardHistoryView: View {
         }
         previewItemID = nil
         previewImage = nil
-        hoveredImageID = nil
         DispatchQueue.main.async { searchIsFocused = true }
     }
 
@@ -299,11 +272,12 @@ struct ClipboardHistoryView: View {
         selectedID = model.items.first?.id
     }
 
-    private func moveSelection(by offset: Int) {
-        guard !model.items.isEmpty else { return }
+    private func moveSelectionIfPossible(by offset: Int) -> Bool {
+        guard previewItemID == nil, !model.items.isEmpty else { return false }
         let currentIndex = selectedID.flatMap { id in model.items.firstIndex(where: { $0.id == id }) } ?? 0
         let nextIndex = min(max(currentIndex + offset, 0), model.items.count - 1)
         selectedID = model.items[nextIndex].id
+        return true
     }
 
     private func copySelectedItem() {
@@ -323,11 +297,18 @@ struct ClipboardHistoryView: View {
 private struct ClipboardArrowKeyMonitor: NSViewRepresentable {
     let isEnabled: Bool
     let isPreviewExpanded: Bool
+    let onUpArrow: () -> Bool
+    let onDownArrow: () -> Bool
     let onRightArrow: () -> Bool
     let onLeftArrow: () -> Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onRightArrow: onRightArrow, onLeftArrow: onLeftArrow)
+        Coordinator(
+            onUpArrow: onUpArrow,
+            onDownArrow: onDownArrow,
+            onRightArrow: onRightArrow,
+            onLeftArrow: onLeftArrow
+        )
     }
 
     func makeNSView(context: Context) -> KeySinkView {
@@ -341,6 +322,8 @@ private struct ClipboardArrowKeyMonitor: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.isEnabled = isEnabled
         coordinator.isPreviewExpanded = isPreviewExpanded
+        coordinator.onUpArrow = onUpArrow
+        coordinator.onDownArrow = onDownArrow
         coordinator.onRightArrow = onRightArrow
         coordinator.onLeftArrow = onLeftArrow
         guard isEnabled,
@@ -370,11 +353,20 @@ private struct ClipboardArrowKeyMonitor: NSViewRepresentable {
         weak var keySinkView: KeySinkView?
         var isEnabled = false
         var isPreviewExpanded = false
+        var onUpArrow: () -> Bool
+        var onDownArrow: () -> Bool
         var onRightArrow: () -> Bool
         var onLeftArrow: () -> Bool
         private var monitor: Any?
 
-        init(onRightArrow: @escaping () -> Bool, onLeftArrow: @escaping () -> Bool) {
+        init(
+            onUpArrow: @escaping () -> Bool,
+            onDownArrow: @escaping () -> Bool,
+            onRightArrow: @escaping () -> Bool,
+            onLeftArrow: @escaping () -> Bool
+        ) {
+            self.onUpArrow = onUpArrow
+            self.onDownArrow = onDownArrow
             self.onRightArrow = onRightArrow
             self.onLeftArrow = onLeftArrow
         }
@@ -387,6 +379,10 @@ private struct ClipboardArrowKeyMonitor: NSViewRepresentable {
                       let keySinkView = self.keySinkView,
                       keySinkView.window?.isKeyWindow == true else { return event }
                 switch event.keyCode {
+                case 126:
+                    return self.onUpArrow() ? nil : event
+                case 125:
+                    return self.onDownArrow() ? nil : event
                 case 124:
                     return self.onRightArrow() ? nil : event
                 case 123:
@@ -416,7 +412,6 @@ private struct ClipboardHistoryRow: View {
     let onSelect: () -> Void
     let onPin: () -> Void
     let onDelete: () -> Void
-    let onHoverChange: (Bool) -> Void
     @State private var hovering = false
 
     var body: some View {
@@ -471,15 +466,7 @@ private struct ClipboardHistoryRow: View {
             isSelected ? Color.accentColor.opacity(0.28) : (hovering ? Color.white.opacity(0.09) : Color.white.opacity(0.04)),
             in: RoundedRectangle(cornerRadius: 8)
         )
-        .onHover { isHovering in
-            hovering = isHovering
-            onHoverChange(isHovering)
-        }
-        .onDisappear {
-            if hovering {
-                onHoverChange(false)
-            }
-        }
+        .onHover { hovering = $0 }
         .contextMenu {
             Button("Copy", action: onSelect)
             Button(item.isPinned ? "Unpin" : "Pin", action: onPin)
