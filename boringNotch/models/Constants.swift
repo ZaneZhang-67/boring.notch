@@ -93,6 +93,15 @@ extension Defaults.Keys {
     //static let openLastTabByDefault = Key<Bool>("openLastTabByDefault", default: false)
     static let showOnLockScreen = Key<Bool>("showOnLockScreen", default: false)
     static let hideFromScreenRecording = Key<Bool>("hideFromScreenRecording", default: false)
+
+    // MARK: Clipboard history
+    static let clipboardHistoryEnabled = Key<Bool>("clipboardHistoryEnabled", default: true)
+    static let clipboardCaptureImages = Key<Bool>("clipboardCaptureImages", default: true)
+    static let clipboardCaptureFiles = Key<Bool>("clipboardCaptureFiles", default: true)
+    static let clipboardCaptureRichText = Key<Bool>("clipboardCaptureRichText", default: true)
+    static let clipboardMaximumItems = Key<Int>("clipboardMaximumItems", default: 500)
+    static let clipboardMaximumStorageMB = Key<Int>("clipboardMaximumStorageMB", default: 512)
+    static let clipboardPauseOnLockScreen = Key<Bool>("clipboardPauseOnLockScreen", default: true)
     
     // MARK: Appearance
     static let showEmojis = Key<Bool>("showEmojis", default: false)

@@ -17,6 +17,8 @@ class BoringViewModel: NSObject, ObservableObject {
     let animation: Animation?
 
     @Published var contentType: ContentType = .normal
+    @Published var currentView: NotchViews = .home
+    @Published var clipboardOwnsKeyboardFocus = false
     @Published private(set) var notchState: NotchState = .closed
 
     @Published var dragDetectorTargeting: Bool = false
@@ -189,17 +191,17 @@ class BoringViewModel: NSObject, ObservableObject {
         return false
     }
 
-    func open() {
-        self.notchSize = openNotchSize
+    func open(size: CGSize = openNotchSize) {
+        self.notchSize = size
         self.notchState = .open
         
         // Force music information update when notch is opened
         MusicManager.shared.forceUpdate()
     }
 
-    func close() {
-        // Do not close while a share picker or sharing service is active
-        if SharingStateManager.shared.preventNotchClose {
+    func close(force: Bool = false) {
+        // Clipboard privacy/lifecycle paths use force so sharing state cannot leave history visible.
+        if !force && SharingStateManager.shared.preventNotchClose {
             return
         }
         self.notchSize = getClosedNotchSize(screenUUID: self.screenUUID)
@@ -211,11 +213,13 @@ class BoringViewModel: NSObject, ObservableObject {
 
         // Set the current view to shelf if it contains files and the user enables openShelfByDefault
         // Otherwise, if the user has not enabled openLastShelfByDefault, set the view to home
-    if !ShelfStateViewModel.shared.isEmpty && Defaults[.openShelfByDefault] {
-            coordinator.currentView = .shelf
-        } else if !coordinator.openLastTabByDefault {
-            coordinator.currentView = .home
+        if !ShelfStateViewModel.shared.isEmpty && Defaults[.openShelfByDefault] {
+            currentView = .shelf
+        } else if !coordinator.openLastTabByDefault || currentView == .clipboard {
+            // Clipboard is an ephemeral privacy surface, never a remembered default tab.
+            currentView = .home
         }
+        clipboardOwnsKeyboardFocus = false
     }
 
     func closeHello() {
